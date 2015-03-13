@@ -7,7 +7,9 @@ import socket;
 import string;
 import os;
 
-#### Com Thread Version V1.02
+#### Com Thread Version V1.03.1
+#V1.03 split received data line by line to search.
+#V1.03.1 add write_once
 
 from multiprocessing import Process, Queue;
 
@@ -135,34 +137,52 @@ class ComThread:
         found = 0;
         while self.alive: 
 
-            time.sleep(0.5); 
+            time.sleep(0.1); 
             try:
 
                 data = ''; 
                 n = self.l_serial.inWaiting(); 
                 if n : 
+                    # Get data from serial interface
                     data = data + self.l_serial.read(n);
-                    print data
-                    # update data to the queue
-                    if self.dq:
-                        self.dq.put(data);
-
+                    
                     # to search the keyword when recieve data
-                    for words in self.listen_keyword:
-                        if cmp(words, "NONE") != 0 :
-                            matcher = re.search(words, data);
-                            if matcher:
-                                print "Keyword: " + words +" catched";
-                                
-                                if self.inter_q:
-                                    self.inter_q.put(words);
-                                else:
-                                    ## if no command queue , end the search here.
-                                    found = 1;
-                                break;
+                    # data would be expected like "XXXX\nXXXX\nXX"
+                    # so it would be splited like "{XXXX, \n , XXX, \n, XX}"
+                    for linedata in re.split("(\n)", data):
+                        print linedata
+                        # update data to the queue
+                        # make sure data would a entire line. 
+                        if self.dq:
+                            self.dq.put(linedata);
+
+                        for words in self.listen_keyword:
+                            if cmp(words, "NONE") != 0 :
+
+                                # get rid of the echo command 
+                                matcher = re.search("echo \""+words, linedata);
+                                if not matcher:
+
+                                    matcher = re.search(words, linedata);
+                                    if matcher:
+                                        print "Keyword: " + words +" catched";
+                                        
+                                        if self.inter_q:
+                                            self.inter_q.put(words);
+                                        else:
+                                            ## if no command queue , end the search here.
+                                            found = 1;
+                                        break;
+                        if found:
+                            break;
+
+                    #keep the last element which it has no eol symbol (middle of a line) 
+                    data = re.split("(\n)", data)[-1];
+
                     if found:
                         found = 0;
                         break;
+
 
             except Exception, ex: 
                 print str(ex);
@@ -182,6 +202,14 @@ class ComThread:
                 
             except Exception, ex: 
                 print str(ex);
+    def Write_once(self, write_data=None): 
+        if self.alive: 
+            try:
+                if not write_data is None:
+                    self.l_serial.write(write_data);
+            except Exception, ex: 
+                print str(ex);
+
     def ymodem_xmit(self, image_file):
         if sys.platform.startswith('win'):
             # Loading PCOMM DLL for Ymodem xmit
