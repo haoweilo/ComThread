@@ -6,10 +6,12 @@ import re;
 import socket; 
 import string;
 import os;
+import glob;
 
 #### Com Thread Version V1.03.1
 #V1.03 split received data line by line to search.
 #V1.03.1 add write_once
+#V1.03.2 add example 
 
 from multiprocessing import Process, Queue;
 
@@ -254,3 +256,94 @@ class ComThread:
         else:
             print "Wrong Platform";
             return False;
+
+### Example ####
+########## Main ####################################
+if __name__ == '__main__': 
+
+    # check parameters
+    if len(sys.argv) != 4:
+        print "#########################"
+        print " "
+        print sys.argv[0]+" port scriptfile"
+        print "EX: "+sys.argv[0]+" com3 test1.script u-boot.bin"
+        print " "
+        print "#########################"
+        exit();
+
+    # assign parameters
+    port = sys.argv[1];
+    # search for com port number....
+    port_matcher = re.search(r"\d+$", port);
+    if port_matcher:
+        port_num = port_matcher.group(0);
+    else:
+        print "wrong port number"
+        exit();
+
+    script_file = sys.argv[2]
+    engine_bin = sys.argv[3]
+
+    ################ start ##################
+    rt = ComThread();
+
+    # assign port to rt
+    rt.port = port
+
+    try: 
+        ###########  Stage 1 Stop it in bootstrap ##############
+        #ESC
+        esc_chars="1B"
+        hex_esc = esc_chars.decode("hex");
+        if rt.start(">>", hex_esc): 
+            rt.waiting();
+            rt.stop();
+        else: 
+            pass;
+
+        ###########  Stage 2 start to Ymodem ##############
+        if rt.start("NONE", "NONE"):
+
+            print "[BOOTSTRAP] Start Ymodem XMIT"
+
+            # run hw setting scripts
+            f=open(script_file, 'r');
+
+            for line in f.readlines():
+                rt.Write_once(line.strip());
+                #print line.strip()
+                time.sleep(0.02); 
+            f.close();
+
+            #### Start Ymodem xmiting #########
+            time.sleep(0.5); 
+            rt.Write_once("d");
+            time.sleep(1);
+            # stop pyserail for PCOMM to take care
+            rt.stop();
+
+            if rt.ymodem_xmit(engine_bin) is False:
+                print "ymodem Xmit failed";
+                pass;
+        else:
+            pass;
+
+        ###########  Stage 3 start to burn UBOOT ##############
+        ## Stop read until receive "success"
+        if rt.start("success", "NONE"):
+            #start test
+            print "[BOOTSTRAP] Start to BURN"
+            time.sleep(0.1);
+            #### Start boot to UBOOT #########
+            rt.Write_once("b")
+            time.sleep(0.1);
+            rt.waiting();
+            rt.stop();
+            print "[BOOTSTRAP]" + engine_bin + " has been burned...."
+        else:
+            pass;
+    except KeyboardInterrupt:
+        print "stop"
+        rt.SetStopEvent();
+    except Exception,se: 
+        print str(se);
